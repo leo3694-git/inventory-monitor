@@ -57,6 +57,11 @@
       color: #475569;
       border: 1px solid #e2e8f0;
     }
+    .badge-filtered {
+      background-color: #f8fafc;
+      color: #94a3b8;
+      border: 1px solid #cbd5e1;
+    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
@@ -77,7 +82,7 @@
           </div>
           <div>
             <h1 class="text-lg font-bold text-slate-900 leading-tight">車鑰匙庫存異動監控系統</h1>
-            <p class="text-xs text-slate-500">歷史基準比對 · 低存量危險預警 · 完售下架提醒</p>
+            <p class="text-xs text-slate-500">專注子機/板子 · 自動排除機器配件 · 歷史基準比對</p>
           </div>
         </div>
 
@@ -114,6 +119,10 @@
             <span id="baseline-badge" class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-slate-100 text-slate-600 border border-slate-200">
               檢查中...
             </span>
+            <span id="filter-active-pill" class="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+              <i data-lucide="filter" class="w-3 h-3"></i>
+              已開啟子機過濾
+            </span>
           </div>
           <p id="baseline-desc" class="text-xs text-slate-500 mt-0.5">尚未載入基準庫存資料</p>
         </div>
@@ -130,92 +139,124 @@
         </button>
         <button onclick="toggleConfigPanel()" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition">
           <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
-          門檻與缺貨設定
+          過濾規則與缺貨設定
         </button>
       </div>
     </div>
 
-    <!-- Collapsible Settings Panel (Danger Threshold & Custom Out of Stock) -->
-    <div id="config-panel" class="hidden bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 shadow-lg space-y-4">
+    <!-- Collapsible Settings Panel -->
+    <div id="config-panel" class="hidden bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 shadow-xl space-y-5">
       <div class="flex items-center justify-between border-b border-slate-800 pb-3">
         <div class="flex items-center gap-2">
           <i data-lucide="settings" class="w-5 h-5 text-emerald-400"></i>
-          <h3 class="font-bold text-sm text-slate-100"><span id="cfg-brand-title">VVDI</span> 專屬參數設定</h3>
+          <h3 class="font-bold text-sm text-slate-100"><span id="cfg-brand-title">VVDI</span> 專屬過濾與門檻設定</h3>
         </div>
         <button onclick="toggleConfigPanel()" class="text-slate-400 hover:text-white text-xs">收起 ✕</button>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <!-- Low stock threshold -->
+        
+        <!-- 1. Model / Sub-key Prefix Whitelist -->
         <div class="space-y-2">
-          <label class="block text-xs font-medium text-slate-300">
-            ⚠️ 低存量危險門檻 (PCS)
-          </label>
-          <div class="flex items-center gap-2">
-            <input type="number" id="threshold-input" min="1" max="1000" value="30" onchange="updateThreshold(this.value)" class="w-32 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 font-semibold" />
-            <span class="text-xs text-slate-400">當前小於或等於此數警示</span>
+          <div class="flex items-center justify-between">
+            <label class="block text-xs font-medium text-emerald-400 flex items-center gap-1">
+              <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+              只保留的子機/板子型號前綴 (白名單)
+            </label>
+            <label class="inline-flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" id="enable-prefix-filter" onchange="togglePrefixFilter(this.checked)" checked class="rounded text-emerald-500 bg-slate-800 border-slate-700" />
+              <span class="text-[11px] text-slate-300">啟用前綴限制</span>
+            </label>
           </div>
-          <p class="text-[11px] text-slate-400">目前預設為 30 pcs，只要庫存低於此數字會立刻標示為「低存量危險」。</p>
+          <input type="text" id="allowed-prefixes-input" onchange="updateAllowedPrefixes(this.value)" placeholder="例如: XK, XS, XZ, XN, XE" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500" />
+          <p class="text-[11px] text-slate-400 leading-normal">
+            以逗號隔開。只會保留以這些字母開頭的商品編號（其他像 XCMNP2EN、Key Tool 等機器設備將自動被排除）。
+          </p>
         </div>
 
-        <!-- Custom Long-term Out of stock -->
-        <div class="md:col-span-2 space-y-2">
-          <div class="flex items-center justify-between">
-            <label class="block text-xs font-medium text-slate-300">
-              📋 自訂長期缺貨商品清單（每行一個商品編號，或用逗號分開）
+        <!-- 2. Danger threshold & Machine Keyword Blacklist -->
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-amber-400 mb-1 flex items-center gap-1">
+              <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
+              低存量危險門檻 (PCS)
             </label>
-            <span id="custom-out-count" class="text-xs text-purple-400 font-semibold">0 項</span>
+            <div class="flex items-center gap-2">
+              <input type="number" id="threshold-input" min="1" max="1000" value="30" onchange="updateThreshold(this.value)" class="w-28 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-white focus:outline-none focus:border-amber-500 font-semibold" />
+              <span class="text-xs text-slate-400">目前預設: 30 pcs</span>
+            </div>
           </div>
-          <textarea id="custom-out-textarea" rows="3" placeholder="例如：&#10;KEY TOOL PLUS-電池&#10;頻率測試儀一代&#10;XCMNP2EN" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"></textarea>
+
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">
+              設備/配件排除關鍵字 (黑名單)
+            </label>
+            <input type="text" id="blacklist-keywords-input" onchange="updateBlacklistKeywords(this.value)" placeholder="例如: 機器, 平板, 設備, 電池, 适配器, Tool" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-rose-500" />
+            <p class="text-[10px] text-slate-400 mt-1">品名或編號中包含任一關鍵字會自動強制排除。</p>
+          </div>
+        </div>
+
+        <!-- 3. Custom Long-term Out of stock -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="block text-xs font-medium text-purple-400 flex items-center gap-1">
+              <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+              自訂長期缺貨商品清單
+            </label>
+            <span id="custom-out-count" class="text-xs text-purple-300 font-semibold">0 項</span>
+          </div>
+          <textarea id="custom-out-textarea" rows="3" placeholder="每行一個商品編號，例如：&#10;XEDS01EN&#10;XNBZ01EN" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"></textarea>
           <div class="flex justify-between items-center pt-1">
-            <p class="text-[11px] text-slate-400">系統會長期記住這些商品，若即使不在 Excel 報表內，也會在缺貨清單中持續提醒您。</p>
-            <button onclick="saveCustomOutOfStock()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white transition">
-              儲存缺貨名單
+            <span class="text-[10px] text-slate-400">長期列管缺貨，防止賣場漏補</span>
+            <button onclick="saveCustomOutOfStock()" class="px-3 py-1 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white transition">
+              儲存缺貨清單
             </button>
           </div>
         </div>
+
       </div>
     </div>
 
     <!-- Upload & Drag/Drop Area -->
     <div class="grid grid-cols-1 md:grid-cols-12 gap-5">
       <div class="md:col-span-8">
-        <div id="dropzone" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" class="relative border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/20 rounded-2xl p-8 text-center transition-all cursor-pointer flex flex-col items-center justify-center min-h-[190px]">
+        <div id="dropzone" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" class="relative border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/20 rounded-2xl p-7 text-center transition-all cursor-pointer flex flex-col items-center justify-center min-h-[180px]">
           <input type="file" id="file-input" accept=".xls,.xlsx,.csv" onchange="handleFileSelect(event)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-          <div class="w-14 h-14 rounded-2xl bg-emerald-100/70 text-emerald-600 flex items-center justify-center mb-3">
-            <i data-lucide="file-spreadsheet" class="w-7 h-7"></i>
+          <div class="w-12 h-12 rounded-2xl bg-emerald-100/70 text-emerald-600 flex items-center justify-center mb-2.5">
+            <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
           </div>
           <p class="text-sm font-semibold text-slate-800">
             點擊此處或將 <span id="upload-brand-tag" class="text-emerald-600 font-bold">VVDI</span> Excel 報表拖曳至此
           </p>
           <p class="text-xs text-slate-500 mt-1">
-            支援格式：<span class="font-mono text-slate-600">.xls</span> (如系統導出的東莞倉庫報表), <span class="font-mono text-slate-600">.xlsx</span>, <span class="font-mono text-slate-600">.csv</span>
+            支援格式：<span class="font-mono text-slate-600">.xls</span> (東莞倉庫報表), <span class="font-mono text-slate-600">.xlsx</span>, <span class="font-mono text-slate-600">.csv</span>
           </p>
-          <div id="file-info" class="hidden mt-3 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-medium text-emerald-800 flex items-center gap-1.5">
+          <div id="file-info" class="hidden mt-2.5 px-3 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-medium text-emerald-800 flex items-center gap-1.5">
             <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-600"></i>
             <span id="file-name">檔案已載入</span>
           </div>
         </div>
       </div>
 
-      <!-- Quick Upload Guidance / Baseline Upload Card -->
+      <!-- Quick Upload Guidance Card -->
       <div class="md:col-span-4 bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
         <div>
           <div class="flex items-center gap-2 mb-2 text-slate-800 font-bold text-sm">
-            <i data-lucide="help-circle" class="w-4 h-4 text-emerald-600"></i>
-            運作模式說明
+            <i data-lucide="sparkles" class="w-4 h-4 text-emerald-600"></i>
+            智慧過濾規則
           </div>
-          <ul class="text-xs text-slate-600 space-y-2 list-disc list-inside leading-relaxed">
-            <li><strong class="text-slate-800">首次使用</strong>：拖入報表後，系統會自動記為「初始基準」。</li>
-            <li><strong class="text-slate-800">日常使用</strong>：直接拖入最新導出的報表，系統立即比對異動！</li>
-            <li><strong class="text-slate-800">更新基準</strong>：比對並處理完下架與補貨後，按上方「儲存本次為新基準」，下次就用新庫存比對。</li>
-          </ul>
+          <div class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+            <p><strong class="text-slate-800">VVDI 子機：</strong>自動保留 <code class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded font-mono">XK / XS / XZ / XN / XE</code></p>
+            <p><strong class="text-slate-800">KEYDIY 子機：</strong>自動保留 <code class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded font-mono">B / NB / ZB / TB / C29 / FGB / MLB</code></p>
+            <p><strong class="text-slate-800">AUTEL 子機：</strong>自動保留 <code class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded font-mono">IKEY</code></p>
+            <p class="text-[11px] text-slate-400 pt-1">儀器、平板、編程筆、轉接頭等已自動為您過濾！</p>
+          </div>
         </div>
-        <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-          <span>直接指定檔案為基準？</span>
+        <div class="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+          <span>需更換基準庫存？</span>
           <label class="cursor-pointer text-emerald-600 font-semibold hover:underline flex items-center gap-1">
             <i data-lucide="upload" class="w-3 h-3"></i>
-            上傳基準檔
+            直接上傳新基準
             <input type="file" accept=".xls,.xlsx,.csv" onchange="uploadDirectAsBaseline(event)" class="hidden" />
           </label>
         </div>
@@ -223,58 +264,68 @@
     </div>
 
     <!-- Alert KPI Summary Cards -->
-    <div id="kpi-section" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-      <!-- 1. All Items -->
-      <div onclick="setFilter('all')" class="kpi-card cursor-pointer bg-white p-4 rounded-2xl border-2 border-slate-200 hover:border-slate-400 shadow-sm transition-all" data-type="all">
+    <div id="kpi-section" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <!-- 1. All Valid Sub-keys -->
+      <div onclick="setFilter('all')" class="kpi-card cursor-pointer bg-white p-3.5 rounded-2xl border-2 border-slate-200 hover:border-slate-400 shadow-sm transition-all" data-type="all">
         <div class="flex items-center justify-between text-slate-500 mb-1">
-          <span class="text-xs font-semibold">全部商品</span>
-          <i data-lucide="box" class="w-4 h-4"></i>
+          <span class="text-xs font-semibold">有效子機</span>
+          <i data-lucide="key" class="w-4 h-4"></i>
         </div>
         <div id="kpi-all-count" class="text-2xl font-black text-slate-900">0</div>
-        <p class="text-[11px] text-slate-400 mt-1">目前清單總計</p>
+        <p class="text-[10px] text-slate-400 mt-0.5">過濾後品項總數</p>
       </div>
 
       <!-- 2. Danger: Need Unlist (Sold Out) -->
-      <div onclick="setFilter('down')" class="kpi-card cursor-pointer bg-white p-4 rounded-2xl border-2 border-rose-200 hover:border-rose-400 bg-rose-50/20 shadow-sm transition-all" data-type="down">
+      <div onclick="setFilter('down')" class="kpi-card cursor-pointer bg-white p-3.5 rounded-2xl border-2 border-rose-200 hover:border-rose-400 bg-rose-50/20 shadow-sm transition-all" data-type="down">
         <div class="flex items-center justify-between text-rose-600 mb-1">
           <span class="text-xs font-bold flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
-            銷售完畢要下架
+            <span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+            銷售完畢下架
           </span>
           <i data-lucide="alert-octagon" class="w-4 h-4"></i>
         </div>
         <div id="kpi-down-count" class="text-2xl font-black text-rose-600">0</div>
-        <p class="text-[11px] text-rose-500 mt-1">上次有貨但已完售</p>
+        <p class="text-[10px] text-rose-500 mt-0.5">上次有貨但已完售</p>
       </div>
 
       <!-- 3. Warning: Low Stock -->
-      <div onclick="setFilter('danger')" class="kpi-card cursor-pointer bg-white p-4 rounded-2xl border-2 border-amber-200 hover:border-amber-400 bg-amber-50/20 shadow-sm transition-all" data-type="danger">
+      <div onclick="setFilter('danger')" class="kpi-card cursor-pointer bg-white p-3.5 rounded-2xl border-2 border-amber-200 hover:border-amber-400 bg-amber-50/20 shadow-sm transition-all" data-type="danger">
         <div class="flex items-center justify-between text-amber-600 mb-1">
           <span class="text-xs font-bold">低存量危險</span>
           <i data-lucide="alert-triangle" class="w-4 h-4"></i>
         </div>
         <div id="kpi-danger-count" class="text-2xl font-black text-amber-600">0</div>
-        <p id="kpi-danger-sub" class="text-[11px] text-amber-600 mt-1">現有庫存 &le; 30 pcs</p>
+        <p id="kpi-danger-sub" class="text-[10px] text-amber-600 mt-0.5">庫存 &le; 30 pcs</p>
       </div>
 
       <!-- 4. Success: Increased / Restocked -->
-      <div onclick="setFilter('increase')" class="kpi-card cursor-pointer bg-white p-4 rounded-2xl border-2 border-emerald-200 hover:border-emerald-400 bg-emerald-50/20 shadow-sm transition-all" data-type="increase">
+      <div onclick="setFilter('increase')" class="kpi-card cursor-pointer bg-white p-3.5 rounded-2xl border-2 border-emerald-200 hover:border-emerald-400 bg-emerald-50/20 shadow-sm transition-all" data-type="increase">
         <div class="flex items-center justify-between text-emerald-600 mb-1">
-          <span class="text-xs font-bold">庫存增加 / 新上架</span>
+          <span class="text-xs font-bold">庫存增加/新上架</span>
           <i data-lucide="trending-up" class="w-4 h-4"></i>
         </div>
         <div id="kpi-increase-count" class="text-2xl font-black text-emerald-600">0</div>
-        <p class="text-[11px] text-emerald-600 mt-1">庫存增加或新補貨</p>
+        <p class="text-[10px] text-emerald-600 mt-0.5">數量增加或新子機</p>
       </div>
 
       <!-- 5. Purple: Long-term Out of stock -->
-      <div onclick="setFilter('outofstock')" class="kpi-card cursor-pointer bg-white p-4 rounded-2xl border-2 border-purple-200 hover:border-purple-400 bg-purple-50/20 shadow-sm transition-all" data-type="outofstock">
+      <div onclick="setFilter('outofstock')" class="kpi-card cursor-pointer bg-white p-3.5 rounded-2xl border-2 border-purple-200 hover:border-purple-400 bg-purple-50/20 shadow-sm transition-all" data-type="outofstock">
         <div class="flex items-center justify-between text-purple-600 mb-1">
           <span class="text-xs font-bold">自訂長期缺貨</span>
           <i data-lucide="clock" class="w-4 h-4"></i>
         </div>
         <div id="kpi-outofstock-count" class="text-2xl font-black text-purple-600">0</div>
-        <p class="text-[11px] text-purple-500 mt-1">手動列管缺貨品項</p>
+        <p class="text-[10px] text-purple-500 mt-0.5">手動列管缺貨</p>
+      </div>
+
+      <!-- 6. Filtered Out Machines (Safety View) -->
+      <div onclick="setFilter('filtered')" class="kpi-card cursor-pointer bg-white p-3.5 rounded-2xl border-2 border-slate-200 hover:border-slate-300 bg-slate-50/50 shadow-sm transition-all" data-type="filtered">
+        <div class="flex items-center justify-between text-slate-400 mb-1">
+          <span class="text-xs font-medium">已過濾機器</span>
+          <i data-lucide="filter-x" class="w-4 h-4"></i>
+        </div>
+        <div id="kpi-filtered-count" class="text-2xl font-black text-slate-500">0</div>
+        <p class="text-[10px] text-slate-400 mt-0.5">點擊查看排除項目</p>
       </div>
     </div>
 
@@ -283,7 +334,7 @@
       <!-- Search Input -->
       <div class="relative w-full md:w-72">
         <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-3"></i>
-        <input type="text" id="search-input" oninput="renderTable()" placeholder="搜尋商品編號 (SKU) 或名稱..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500" />
+        <input type="text" id="search-input" oninput="renderTable()" placeholder="搜尋子機型號 (SKU) 或品名..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500" />
       </div>
 
       <!-- Quick Action Buttons -->
@@ -307,14 +358,14 @@
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
         <div class="flex items-center gap-2">
-          <span class="text-xs font-bold text-slate-700">當前篩選：</span>
+          <span class="text-xs font-bold text-slate-700">當前檢視：</span>
           <span id="active-filter-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-            全部商品
+            全部有效子機
           </span>
           <span id="result-count" class="text-xs text-slate-500">(0 筆)</span>
         </div>
         <div class="text-[11px] text-slate-400">
-          💡 點擊「一鍵複製」按鈕可直接貼入賣場後台快速批量操作
+          💡 點擊「一鍵複製」按鈕可直接貼入蝦皮/後台快速批量下架
         </div>
       </div>
 
@@ -358,32 +409,55 @@
       autel: 'AUTEL'
     };
 
+    // Default Whitelist Prefixes for Sub-Keys per Brand
+    const DEFAULT_PREFIXES = {
+      vvdi: ['XK', 'XS', 'XZ', 'XN', 'XE'],
+      keydiy: ['B', 'NB', 'ZB', 'TB', 'C29', 'FGB', 'MLB'],
+      autel: ['IKEY']
+    };
+
+    const DEFAULT_BLACKLIST = [
+      '機器', '设备', '設備', '編程', '平板', '測試儀', '电池', '電池',
+      '适配器', '转接头', '轉接頭', '线', '線', 'Adapter', 'Programmer',
+      'Tool', 'Tester', 'Machine', 'Cable', 'Battery', 'XC-'
+    ];
+
     let currentBrand = 'vvdi';
-    let currentFilter = 'all'; // all, down, danger, increase, outofstock, normal
+    let currentFilter = 'all'; // all, down, danger, increase, outofstock, normal, filtered
 
     // Brand data loaded from localStorage
     let appData = {
       vvdi: {
-        baseline: null, // { timestamp, fileName, items: { [sku]: { name, qty } } }
-        current: null,  // { timestamp, fileName, items: { [sku]: { name, qty } } }
+        baseline: null,
+        current: null,
         threshold: 30,
-        customOutOfStock: []
+        customOutOfStock: [],
+        enablePrefixFilter: true,
+        allowedPrefixes: [...DEFAULT_PREFIXES.vvdi],
+        blacklistKeywords: [...DEFAULT_BLACKLIST]
       },
       keydiy: {
         baseline: null,
         current: null,
         threshold: 30,
-        customOutOfStock: []
+        customOutOfStock: [],
+        enablePrefixFilter: true,
+        allowedPrefixes: [...DEFAULT_PREFIXES.keydiy],
+        blacklistKeywords: [...DEFAULT_BLACKLIST]
       },
       autel: {
         baseline: null,
         current: null,
         threshold: 30,
-        customOutOfStock: []
+        customOutOfStock: [],
+        enablePrefixFilter: true,
+        allowedPrefixes: [...DEFAULT_PREFIXES.autel],
+        blacklistKeywords: [...DEFAULT_BLACKLIST]
       }
     };
 
-    let comparisonResults = []; // Calculated diff items array
+    let comparisonResults = []; // Calculated diff items array (Valid sub-keys)
+    let filteredOutResults = []; // Items filtered out (Machines, tools, etc.)
 
     // --- Init Application ---
     function initApp() {
@@ -403,7 +477,10 @@
               baseline: parsed.baseline || null,
               current: parsed.current || null,
               threshold: parsed.threshold !== undefined ? parsed.threshold : 30,
-              customOutOfStock: parsed.customOutOfStock || []
+              customOutOfStock: parsed.customOutOfStock || [],
+              enablePrefixFilter: parsed.enablePrefixFilter !== undefined ? parsed.enablePrefixFilter : true,
+              allowedPrefixes: parsed.allowedPrefixes || [...DEFAULT_PREFIXES[b]],
+              blacklistKeywords: parsed.blacklistKeywords || [...DEFAULT_BLACKLIST]
             };
           } catch(e) {
             console.error('Failed to parse storage for', b, e);
@@ -466,19 +543,31 @@
       document.getElementById('cfg-brand-title').innerText = brandName;
       document.getElementById('brand-avatar').innerText = brandId.charAt(0).toUpperCase();
 
-      // Update Form Inputs
+      // Update Form Inputs from appData
       const bData = appData[brandId];
       document.getElementById('threshold-input').value = bData.threshold;
+      document.getElementById('enable-prefix-filter').checked = bData.enablePrefixFilter;
+      document.getElementById('allowed-prefixes-input').value = (bData.allowedPrefixes || []).join(', ');
+      document.getElementById('blacklist-keywords-input').value = (bData.blacklistKeywords || []).join(', ');
       document.getElementById('custom-out-textarea').value = (bData.customOutOfStock || []).join('\n');
       document.getElementById('custom-out-count').innerText = `${(bData.customOutOfStock || []).length} 項`;
       document.getElementById('kpi-danger-sub').innerText = `現有庫存 ≤ ${bData.threshold} pcs`;
+
+      // Update Filter Active Pill
+      const pill = document.getElementById('filter-active-pill');
+      if (bData.enablePrefixFilter) {
+        pill.classList.remove('hidden');
+        pill.innerHTML = `<i data-lucide="filter" class="w-3 h-3"></i> 只保留 [${bData.allowedPrefixes.join('/')}]`;
+      } else {
+        pill.classList.add('hidden');
+      }
 
       // Update File Info display
       const fileInfo = document.getElementById('file-info');
       const fileNameEl = document.getElementById('file-name');
       if (bData.current) {
         fileInfo.classList.remove('hidden');
-        fileNameEl.innerText = `本次載入：${bData.current.fileName} (${Object.keys(bData.current.items).length} 項商品)`;
+        fileNameEl.innerText = `本次載入：${bData.current.fileName} (共 ${Object.keys(bData.current.items).length} 項原始商品)`;
       } else {
         fileInfo.classList.add('hidden');
       }
@@ -508,11 +597,48 @@
       showToast(`已將 ${BRAND_NAMES[currentBrand]} 低存量危險門檻設為 ${num} pcs`, 'success');
     }
 
+    // --- Toggle Prefix Filter ---
+    function togglePrefixFilter(checked) {
+      appData[currentBrand].enablePrefixFilter = checked;
+      saveBrandStorage(currentBrand);
+      const pill = document.getElementById('filter-active-pill');
+      if (checked) {
+        pill.classList.remove('hidden');
+        pill.innerHTML = `<i data-lucide="filter" class="w-3 h-3"></i> 只保留 [${appData[currentBrand].allowedPrefixes.join('/')}]`;
+      } else {
+        pill.classList.add('hidden');
+      }
+      computeComparison();
+      renderTable();
+      showToast(checked ? '已啟用子機前綴限制' : '已關閉子機前綴限制 (顯示所有項目)', 'info');
+    }
+
+    // --- Update Allowed Prefixes ---
+    function updateAllowedPrefixes(val) {
+      const list = val.split(/[,，\s]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+      appData[currentBrand].allowedPrefixes = list;
+      saveBrandStorage(currentBrand);
+      const pill = document.getElementById('filter-active-pill');
+      pill.innerHTML = `<i data-lucide="filter" class="w-3 h-3"></i> 只保留 [${list.join('/')}]`;
+      computeComparison();
+      renderTable();
+      showToast(`已更新子機前綴名單：${list.join(', ')}`, 'success');
+    }
+
+    // --- Update Blacklist Keywords ---
+    function updateBlacklistKeywords(val) {
+      const list = val.split(/[,，\s]+/).map(s => s.trim()).filter(s => s.length > 0);
+      appData[currentBrand].blacklistKeywords = list;
+      saveBrandStorage(currentBrand);
+      computeComparison();
+      renderTable();
+      showToast('已更新機器/配件排除關鍵字', 'success');
+    }
+
     // --- Save Custom Out of Stock ---
     function saveCustomOutOfStock() {
       const text = document.getElementById('custom-out-textarea').value;
-      const list = text.split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 0);
-      // Remove duplicates
+      const list = text.split(/[\n,，]+/).map(s => s.trim()).filter(s => s.length > 0);
       const uniqueList = Array.from(new Set(list));
       appData[currentBrand].customOutOfStock = uniqueList;
       saveBrandStorage(currentBrand);
@@ -520,6 +646,34 @@
       computeComparison();
       renderTable();
       showToast(`已儲存 ${uniqueList.length} 項長期缺貨商品`, 'success');
+    }
+
+    // --- Check if item is a Valid Remote / Sub-key ---
+    function isSubKeyItem(sku, name, bData) {
+      const cleanSku = (sku || '').trim().toUpperCase();
+      const cleanName = (name || '').trim();
+
+      // 1. Blacklist check (Machine, Tool, Programmer, Adapter, Battery, etc.)
+      const black = bData.blacklistKeywords || [];
+      for (let k of black) {
+        if (!k) continue;
+        if (cleanName.includes(k) || cleanSku.includes(k.toUpperCase())) {
+          return { isValid: false, reason: `排除包含關鍵字 [${k}]` };
+        }
+      }
+
+      // 2. Prefix Whitelist check (XK, XS, XZ, XN, XE, B, NB, ZB, etc.)
+      if (bData.enablePrefixFilter) {
+        const allowed = bData.allowedPrefixes || [];
+        if (allowed.length > 0) {
+          const matchPrefix = allowed.some(p => cleanSku.startsWith(p.toUpperCase()));
+          if (!matchPrefix) {
+            return { isValid: false, reason: `非子機前綴 (需為 ${allowed.join('/')})` };
+          }
+        }
+      }
+
+      return { isValid: true, reason: '符合子機規格' };
     }
 
     // --- Baseline Status Refresh ---
@@ -532,7 +686,7 @@
       if (bData.baseline) {
         const count = Object.keys(bData.baseline.items).length;
         badge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200';
-        badge.innerText = `基準在庫 (${count}項)`;
+        badge.innerText = `基準在庫 (${count}項原始商品)`;
         desc.innerText = `基準檔案：${bData.baseline.fileName} · 設定時間：${bData.baseline.timestamp}`;
       } else {
         badge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800 border border-amber-200';
@@ -591,7 +745,7 @@
     function handleFileSelect(e) {
       if (e.target.files && e.target.files.length > 0) {
         processUploadedFile(e.target.files[0], false);
-        e.target.value = ''; // Reset input
+        e.target.value = '';
       }
     }
     function uploadDirectAsBaseline(e) {
@@ -633,23 +787,21 @@
 
           const bData = appData[currentBrand];
 
-          // If directly uploaded as baseline OR brand has no baseline yet
           if (isDirectBaseline || !bData.baseline) {
             bData.baseline = record;
             bData.current = record;
             saveBrandStorage(currentBrand);
             refreshBrandUI();
-            showToast(`初次上傳：已成功設定基準庫存 (${itemCount} 項商品)`, 'success');
+            showToast(`初次上傳：已成功設定基準庫存 (${itemCount} 項原始商品)`, 'success');
           } else {
-            // Uploaded as latest current file for comparison
             bData.current = record;
             saveBrandStorage(currentBrand);
             refreshBrandUI();
-            showToast(`已成功載入最新報表 (${itemCount} 項商品) 並完成比對！`, 'success');
+            showToast(`已成功載入最新報表並完成比對！`, 'success');
           }
 
           document.getElementById('file-info').classList.remove('hidden');
-          document.getElementById('file-name').innerText = `本次載入：${file.name} (${itemCount} 項商品)`;
+          document.getElementById('file-name').innerText = `本次載入：${file.name} (${itemCount} 項原始商品)`;
 
         } catch (err) {
           console.error(err);
@@ -661,7 +813,6 @@
 
     // --- Dynamic Column Locator ---
     function extractInventoryItems(rows) {
-      // Find the header row by looking for keywords
       let headerRowIndex = -1;
       let skuColIndex = -1;
       let nameColIndex = -1;
@@ -684,7 +835,6 @@
           }
         }
 
-        // If we found at least SKU and Qty column
         if (sCol !== -1 && qCol !== -1) {
           headerRowIndex = r;
           skuColIndex = sCol;
@@ -694,7 +844,6 @@
         }
       }
 
-      // Fallback: If header wasn't found by exact regex, search for substrings
       if (headerRowIndex === -1) {
         for (let r = 0; r < Math.min(25, rows.length); r++) {
           const row = rows[r];
@@ -716,7 +865,6 @@
         }
       }
 
-      // If still not found, defaults to common structure
       if (headerRowIndex === -1) {
         headerRowIndex = 0;
         skuColIndex = 0;
@@ -732,7 +880,6 @@
         const rawSku = String(row[skuColIndex] || '').trim();
         if (!rawSku || rawSku === 'undefined' || rawSku === 'null') continue;
 
-        // Skip non-item rows (e.g. Totals)
         if (rawSku.includes('合计') || rawSku.includes('總計') || rawSku.includes('Total')) continue;
 
         const name = nameColIndex !== -1 ? String(row[nameColIndex] || '').trim() : '';
@@ -755,7 +902,7 @@
       return items;
     }
 
-    // --- Compute Comparison Logic ---
+    // --- Compute Comparison & Apply Filtering ---
     function computeComparison() {
       const bData = appData[currentBrand];
       const threshold = bData.threshold;
@@ -771,16 +918,17 @@
       ]);
 
       comparisonResults = [];
+      filteredOutResults = [];
 
       let countAll = 0;
       let countDown = 0;
       let countDanger = 0;
       let countIncrease = 0;
       let countOutOfStock = 0;
+      let countFiltered = 0;
 
       allSkus.forEach(sku => {
         if (!sku) return;
-        countAll++;
 
         const base = baselineItems[sku];
         const curr = currentItems[sku];
@@ -789,9 +937,32 @@
         const currQty = curr ? curr.qty : 0;
         const name = (curr && curr.name) || (base && base.name) || '';
 
+        // Check if this item is a Sub-key or a Machine to filter out!
+        const check = isSubKeyItem(sku, name, bData);
+
+        if (!check.isValid) {
+          // Put in Filtered List
+          countFiltered++;
+          filteredOutResults.push({
+            sku,
+            name,
+            baseQty,
+            currQty,
+            diffVal: currQty - baseQty,
+            diffText: check.reason,
+            status: 'filtered',
+            statusLabel: '已排除設備',
+            isCustomOut: false
+          });
+          return; // Skip from active alert counts!
+        }
+
+        // It is a valid sub-key
+        countAll++;
+
         const isCustomOut = customOut.has(sku.trim().toUpperCase());
 
-        let status = 'normal'; // down, danger, increase, outofstock, normal
+        let status = 'normal';
         let statusLabel = '正常在庫';
         let diffText = '無變動';
         let diffVal = currQty - baseQty;
@@ -802,7 +973,7 @@
           countOutOfStock++;
           diffText = '長期缺貨列管';
         } else if (baseQty > 0 && currQty === 0) {
-          // KEY REQUIREMENT: Had stock last time, but missing in current export or 0
+          // Last had stock, now 0 or missing
           status = 'down';
           statusLabel = '銷售完畢 (待下架)';
           countDown++;
@@ -812,10 +983,10 @@
           const isNew = !base;
           statusLabel = isNew ? '✨ 全新上架' : '📈 庫存增加';
           countIncrease++;
-          diffText = isNew ? `+${currQty} (新商品)` : `+${diffVal}`;
+          diffText = isNew ? `+${currQty} (新子機)` : `+${diffVal}`;
         } else if (currQty > 0 && currQty <= threshold) {
           status = 'danger';
-          statusLabel = `⚠️ 低存量危險 (≤${threshold})`;
+          statusLabel = `⚠️ 低存量 (≤${threshold})`;
           countDanger++;
           diffText = diffVal === 0 ? '持平低量' : `${diffVal}`;
         } else if (currQty === 0) {
@@ -848,13 +1019,13 @@
       document.getElementById('kpi-danger-count').innerText = countDanger;
       document.getElementById('kpi-increase-count').innerText = countIncrease;
       document.getElementById('kpi-outofstock-count').innerText = countOutOfStock;
+      document.getElementById('kpi-filtered-count').innerText = countFiltered;
     }
 
     // --- Set Filter ---
     function setFilter(type) {
       currentFilter = type;
 
-      // Update KPI card active borders
       document.querySelectorAll('.kpi-card').forEach(card => {
         if (card.getAttribute('data-type') === type) {
           card.classList.add('ring-2', 'ring-slate-800', 'shadow-md');
@@ -865,14 +1036,15 @@
 
       const badge = document.getElementById('active-filter-badge');
       const filterNames = {
-        all: '全部商品',
+        all: '全部有效子機',
         down: '銷售完畢要下架 (售罄)',
         danger: '低存量危險 (低於門檻)',
         increase: '庫存增加 / 新補貨',
         outofstock: '自訂長期缺貨',
+        filtered: '已排除設備與配件 (機器類)',
         normal: '正常存量'
       };
-      badge.innerText = filterNames[type] || '全部商品';
+      badge.innerText = filterNames[type] || '全部有效子機';
 
       renderTable();
     }
@@ -882,8 +1054,10 @@
       const tbody = document.getElementById('table-body');
       const searchKey = document.getElementById('search-input').value.trim().toLowerCase();
 
-      let list = comparisonResults.filter(item => {
-        if (currentFilter !== 'all' && item.status !== currentFilter) {
+      let sourceList = currentFilter === 'filtered' ? filteredOutResults : comparisonResults;
+
+      let list = sourceList.filter(item => {
+        if (currentFilter !== 'all' && currentFilter !== 'filtered' && item.status !== currentFilter) {
           return false;
         }
         if (searchKey) {
@@ -894,14 +1068,15 @@
         return true;
       });
 
-      // Priority sort: down first, then danger, then increase, then outofstock, then normal
-      const sortWeight = { down: 1, danger: 2, increase: 3, outofstock: 4, normal: 5 };
-      list.sort((a, b) => {
-        const wA = sortWeight[a.status] || 99;
-        const wB = sortWeight[b.status] || 99;
-        if (wA !== wB) return wA - wB;
-        return a.currQty - b.currQty;
-      });
+      if (currentFilter !== 'filtered') {
+        const sortWeight = { down: 1, danger: 2, increase: 3, outofstock: 4, normal: 5 };
+        list.sort((a, b) => {
+          const wA = sortWeight[a.status] || 99;
+          const wB = sortWeight[b.status] || 99;
+          if (wA !== wB) return wA - wB;
+          return a.currQty - b.currQty;
+        });
+      }
 
       document.getElementById('result-count').innerText = `(${list.length} 筆)`;
 
@@ -935,6 +1110,9 @@
         } else if (item.status === 'outofstock') {
           badgeClass = 'badge-outofstock';
           diffColor = 'text-purple-700 font-semibold';
+        } else if (item.status === 'filtered') {
+          badgeClass = 'badge-filtered';
+          diffColor = 'text-slate-400 italic';
         }
 
         html += `
@@ -962,12 +1140,12 @@
     function copyUnlistSkus() {
       const unlistItems = comparisonResults.filter(i => i.status === 'down');
       if (unlistItems.length === 0) {
-        showToast('目前沒有需要下架的商品', 'info');
+        showToast('目前沒有需要下架的子機', 'info');
         return;
       }
       const skus = unlistItems.map(i => i.sku).join('\n');
       navigator.clipboard.writeText(skus).then(() => {
-        showToast(`已複製 ${unlistItems.length} 個待下架商品編號！可直接貼至後台`, 'success');
+        showToast(`已複製 ${unlistItems.length} 個待下架子機編號！可直接貼至後台`, 'success');
       }).catch(err => {
         showToast('複製失敗，請手動複製', 'error');
       });
@@ -976,12 +1154,12 @@
     function copyLowStockSkus() {
       const dangerItems = comparisonResults.filter(i => i.status === 'danger');
       if (dangerItems.length === 0) {
-        showToast('目前沒有低庫存危險商品', 'info');
+        showToast('目前沒有低庫存危險子機', 'info');
         return;
       }
       const skus = dangerItems.map(i => `${i.sku}\t(剩餘:${i.currQty})`).join('\n');
       navigator.clipboard.writeText(skus).then(() => {
-        showToast(`已複製 ${dangerItems.length} 個低庫存商品清單！`, 'success');
+        showToast(`已複製 ${dangerItems.length} 個低庫存子機清單！`, 'success');
       }).catch(err => {
         showToast('複製失敗，請手動複製', 'error');
       });
@@ -1011,10 +1189,10 @@
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '庫存比對異動表');
+      XLSX.utils.book_append_sheet(wb, ws, '子機庫存比對異動表');
 
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      const fileName = `${BRAND_NAMES[currentBrand]}_庫存比對報告_${dateStr}.xlsx`;
+      const fileName = `${BRAND_NAMES[currentBrand]}_子機比對報告_${dateStr}.xlsx`;
       XLSX.writeFile(wb, fileName);
 
       showToast(`已成功匯出：${fileName}`, 'success');
