@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>車鑰匙庫存異動監控與下架預警系統</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SheetJS for Excel / CSV parsing and export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap');
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+    }
+    .badge-down {
+      background-color: #fee2e2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }
+    .badge-danger {
+      background-color: #fef3c7;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+    .badge-increase {
+      background-color: #dcfce7;
+      color: #15803d;
+      border: 1px solid #bbf7d0;
+    }
+    .badge-outofstock {
+      background-color: #f3e8ff;
+      color: #7e22ce;
+      border: 1px solid #e9d5ff;
+    }
+    .badge-normal {
+      background-color: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- Toast Notification Container -->
+  <div id="toast" class="fixed top-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl text-white transform transition-all duration-300 opacity-0 pointer-events-none translate-y-[-10px] bg-slate-900">
+    <i id="toast-icon" data-lucide="info" class="w-5 h-5"></i>
+    <span id="toast-msg" class="text-sm font-medium">通知訊息</span>
+  </div>
+
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
+            <i data-lucide="key" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h1 class="text-lg font-bold text-slate-900 leading-tight">車鑰匙庫存異動監控系統</h1>
+            <p class="text-xs text-slate-500">歷史基準比對 · 低存量危險預警 · 完售下架提醒</p>
+          </div>
+        </div>
+
+        <!-- Brand Selector Tabs -->
+        <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
+          <button id="tab-vvdi" onclick="switchBrand('vvdi')" class="brand-tab flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-sm bg-white text-emerald-700">
+            <i data-lucide="cpu" class="w-4 h-4"></i>
+            VVDI (Xhorse)
+          </button>
+          <button id="tab-keydiy" onclick="switchBrand('keydiy')" class="brand-tab flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 transition-all">
+            <i data-lucide="key-round" class="w-4 h-4"></i>
+            KEYDIY (KD)
+          </button>
+          <button id="tab-autel" onclick="switchBrand('autel')" class="brand-tab flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 transition-all">
+            <i data-lucide="scan" class="w-4 h-4"></i>
+            AUTEL
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- Brand Banner & Baseline Controls -->
+    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div class="flex items-center gap-4">
+        <div id="brand-avatar" class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xl border border-emerald-100">
+          V
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 id="current-brand-name" class="text-lg font-bold text-slate-900">VVDI (Xhorse) 庫存監控</h2>
+            <span id="baseline-badge" class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+              檢查中...
+            </span>
+          </div>
+          <p id="baseline-desc" class="text-xs text-slate-500 mt-0.5">尚未載入基準庫存資料</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+        <button id="btn-save-as-baseline" onclick="saveCurrentAsBaseline()" disabled class="disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition">
+          <i data-lucide="save" class="w-4 h-4"></i>
+          儲存本次為新基準
+        </button>
+        <button onclick="resetBaseline()" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 transition">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+          重設基準
+        </button>
+        <button onclick="toggleConfigPanel()" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition">
+          <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+          門檻與缺貨設定
+        </button>
+      </div>
+    </div>
+
+    <!-- Collapsible Settings Panel (Danger Threshold & Custom Out of Stock) -->
+    <div id="config-panel" class="hidden bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 shadow-lg space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <i data-lucide="settings" class="w-5 h-5 text-emerald-400"></i>
+          <h3 class="font-bold text-sm text-slate-100"><span id="cfg-brand-title">VVDI</span> 專屬參數設定</h3>
+        </div>
+        <button onclick="toggleConfigPanel()" class="text-slate-400 hover:text-white text-xs">收起 ✕</button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Low stock threshold -->
+        <div class="space-y-2">
+          <label class="block text-xs font-medium text-slate-300">
+            ⚠️ 低存量危險門檻 (PCS)
+          </label>
+          <div class="flex items-center gap-2">
+            <input type="number" id="threshold-input" min="1" max="1000" value="30" onchange="updateThreshold(this.value)" class="w-32 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 font-semibold" />
+            <span class="text-xs text-slate-400">當前小於或等於此數警示</span>
+          </div>
+          <p class="text-[11px] text-slate-400">目前預設為 30 pcs，只要庫存低於此數字會立刻標示為「低存量危險」。</p>
+        </div>
+
+        <!-- Custom Long-term Out of stock -->
+        <div class="md:col-span-2 space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="block text-xs font-medium text-slate-300">
+              📋 自訂長期缺貨商品清單（每行一個商品編號，或用逗號分開）
+            </label>
+            <span id="custom-out-count" class="text-xs text-purple-400 font-semibold">0 項</span>
+          </div>
+          <textarea id="custom-out-textarea" rows="3" placeholder="例如：&#10;KEY TOOL PLUS-電池&#10;頻率測試儀一代&#10;XCMNP2EN" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"></textarea>
+          <div class="flex justify-between items-center pt-1">
+            <p class="text-[11px] text-slate-400">系統會長期記住這些商品，若即使不在 Excel 報表內，也會在缺貨清單中持續提醒您。</p>
+            <button onclick="saveCustomOutOfStock()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white transition">
+              儲存缺貨名單
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload & Drag/Drop Area -->
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-5">
+      <div class="md:col-span-8">
+        <div id="dropzone" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" class="relative border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/20 rounded-2xl p-8 text-center transition-all cursor-pointer flex flex-col items-center justify-center min-h-[190px]">
+          <input type="file" id="file-input" accept=".xls,.xlsx,.csv" onchange="handleFileSelect(event)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+          <div class="w-14 h-14 rounded-2xl bg-emerald-100/70 text-emerald-600 flex items-center justify-center mb-3">
+            <i data-lucide="file-spreadsheet" class="w-7 h-7"></i>
+          </div>
+          <p class="text-sm font-semibold text-slate-800">
+            點擊此處或將 <span id="upload-brand-tag" class="text-emerald-600 font-bold">VVDI</span> Excel 報表拖曳至此
+          </p>
+          <p class="text-xs text-slate-500 mt-1">
+            支援格式：<span class="font-mono text-slate-600">.xls</span> (如系統導出的東莞倉庫報表), <span class="font-mono text-slate-600">.xlsx</span>, <span class="font-mono text-slate-600">.csv</span>
+          </p>
+          <div id="file-info" class="hidden mt-3 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-medium text-emerald-800 flex items-center gap-1.5">
+            <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-600"></i>
+            <span id="file-name">檔案已載入</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Upload Guidance / Baseline Upload Card -->
+      <div class="md:col-span-4 bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="flex items-center gap-2 mb-2 text-slate-800 font-bold text-sm">
+            <i data-lucide="help-circle" class="w-4 h-4 text-emerald-600"></i>
+            運作模式說明
+          </div>
+          <ul class="text-xs text-slate-600 space-y-2 list-disc list-inside leading-relaxed">
+            <li><strong class="text-slate-800">首次使用</strong>：拖入報表後，系統會自動記為「初始基準」。</li>
+            <li><strong class="text-slate-800">日常使用</strong>：直接拖入最新導出的報表，系統立即比對異動！</li>
+            <li><strong class="text-slate-800">更新基準</strong>：比對並處理完下架與補貨後，按上方「儲存本次為新基準」，下次就用新庫存比對。</li>
+          </ul>
+        </div>
+        <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+          <span>直接指定檔案為基準？</span>
+          <label class="cursor-pointer text-emerald-600 font-semibold hover:underline flex items-center gap-1">
+            <i data-lucide="upload" class="w-3 h-3"></i>
+            上傳基準檔
+            <input type="file" accept=".xls,.xlsx,.csv" onchange="uploadDirectAsBaseline(event)" class="hidden" />
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alert KPI Summary Cards -->
+    <div id="kpi-section" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <!-- 1. All Items -->
+      <div onclick="setFilter('all')" class="kpi-card cursor-pointer bg-white p-4 rounded-2xl border-2 border-slate-200 hover:border-slate-400 shadow-sm transition-all" data-type="all">
+        <div class="flex items-center justify-between text-slate-500 mb-1">
+          <span class="text-xs font-semibold">全部商品</span>
+          <i data-lucide="box" class="w-4 h-4"></i>
+        </div>
+        <div id="kpi-all-count" class="text-2xl font-black text-slate-900">0</div>
+        <p class="text-[11px] text-slate-400 mt-1">目前清單總計</p>
+      </div>
+
+      <!-- 2. Danger: Need Unlist (Sold Out) -->
+      <div onclick="setFilter('down')" class="kpi-card cursor-pointer bg-white p-4 rounded-2xl border-2 border-rose-200 hover:border-rose-400 bg-rose-50/20 shadow-sm transition-all" data-type="down">
+        <div class="flex items-center justify-between text-rose-600 mb-1">
+          <span class="text-xs font-bold flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+            銷售完畢要下架
+          </span>
+          <i data-lucide="alert-octagon" class="w-4 h-4"></i>
+        </div>
+        <div id="kpi-down-count" class="text-2xl font-black text-rose-600">0</div>
+        <p class="text-[11px] text-rose-500 mt-1">上次有貨但已完售</p>
+      </div>
+
+      <!-- 3. Warning: Low Stock -->
+      <div onclick="setFilter('danger')" class="kpi-card cursor-pointer bg-white p-4 rounded-2xl border-2 border-amber-200 hover:border-amber-400 bg-amber-50/20 shadow-sm transition-all" data-type="danger">
+        <div class="flex items-center justify-between text-amber-600 mb-1">
+          <span class="text-xs font-bold">低存量危險</span>
+          <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+        </div>
+        <div id="kpi-danger-count" class="text-2xl font-black text-amber-600">0</div>
+        <p id="kpi-danger-sub" class="text-[11px] text-amber-600 mt-1">現有庫存 &le; 30 pcs</p>
+      </div>
+
+      <!-- 4. Success: Increased / Restocked -->
+      <div onclick="setFilter('increase')" class="kpi-card cursor-pointer bg-white p-4 rounded-2xl border-2 border-emerald-200 hover:border-emerald-400 bg-emerald-50/20 shadow-sm transition-all" data-type="increase">
+        <div class="flex items-center justify-between text-emerald-600 mb-1">
+          <span class="text-xs font-bold">庫存增加 / 新上架</span>
+          <i data-lucide="trending-up" class="w-4 h-4"></i>
+        </div>
+        <div id="kpi-increase-count" class="text-2xl font-black text-emerald-600">0</div>
+        <p class="text-[11px] text-emerald-600 mt-1">庫存增加或新補貨</p>
+      </div>
+
+      <!-- 5. Purple: Long-term Out of stock -->
+      <div onclick="setFilter('outofstock')" class="kpi-card cursor-pointer bg-white p-4 rounded-2xl border-2 border-purple-200 hover:border-purple-400 bg-purple-50/20 shadow-sm transition-all" data-type="outofstock">
+        <div class="flex items-center justify-between text-purple-600 mb-1">
+          <span class="text-xs font-bold">自訂長期缺貨</span>
+          <i data-lucide="clock" class="w-4 h-4"></i>
+        </div>
+        <div id="kpi-outofstock-count" class="text-2xl font-black text-purple-600">0</div>
+        <p class="text-[11px] text-purple-500 mt-1">手動列管缺貨品項</p>
+      </div>
+    </div>
+
+    <!-- Action Toolbar & Filter Buttons -->
+    <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
+      <!-- Search Input -->
+      <div class="relative w-full md:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-3"></i>
+        <input type="text" id="search-input" oninput="renderTable()" placeholder="搜尋商品編號 (SKU) 或名稱..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500" />
+      </div>
+
+      <!-- Quick Action Buttons -->
+      <div class="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+        <button onclick="copyUnlistSkus()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition">
+          <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+          一鍵複製「待下架商品編號」
+        </button>
+        <button onclick="copyLowStockSkus()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white shadow-sm transition">
+          <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+          複製「低庫存清單」
+        </button>
+        <button onclick="exportToExcel()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-900 text-white shadow-sm transition">
+          <i data-lucide="download" class="w-3.5 h-3.5"></i>
+          匯出比對報告 Excel
+        </button>
+      </div>
+    </div>
+
+    <!-- Data Table View -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold text-slate-700">當前篩選：</span>
+          <span id="active-filter-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+            全部商品
+          </span>
+          <span id="result-count" class="text-xs text-slate-500">(0 筆)</span>
+        </div>
+        <div class="text-[11px] text-slate-400">
+          💡 點擊「一鍵複製」按鈕可直接貼入賣場後台快速批量操作
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-100/70 text-slate-600 font-semibold border-b border-slate-200">
+              <th class="py-3 px-4 w-12 text-center">#</th>
+              <th class="py-3 px-4 w-32">狀態標籤</th>
+              <th class="py-3 px-4 w-48 font-mono">商品編號 (SKU)</th>
+              <th class="py-3 px-4">商品名稱</th>
+              <th class="py-3 px-4 w-28 text-right">上次基準庫存</th>
+              <th class="py-3 px-4 w-28 text-right">本次最新庫存</th>
+              <th class="py-3 px-4 w-32 text-right">變動差異</th>
+            </tr>
+          </thead>
+          <tbody id="table-body" class="divide-y divide-slate-100">
+            <tr>
+              <td colspan="7" class="py-12 text-center text-slate-400">
+                <i data-lucide="inbox" class="w-10 h-10 mx-auto mb-2 text-slate-300"></i>
+                請先上傳 Excel 檔案開始進行庫存比對
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="mt-auto py-4 border-t border-slate-200 text-center text-xs text-slate-400">
+    車鑰匙出貨庫存比對系統 · 支援 VVDI / KEYDIY / AUTEL 品牌切換 · 本地瀏覽器儲存資料保障隱私
+  </footer>
+
+  <script>
+    // --- Data State Structure ---
+    const BRANDS = ['vvdi', 'keydiy', 'autel'];
+    const BRAND_NAMES = {
+      vvdi: 'VVDI (Xhorse)',
+      keydiy: 'KEYDIY (KD)',
+      autel: 'AUTEL'
+    };
+
+    let currentBrand = 'vvdi';
+    let currentFilter = 'all'; // all, down, danger, increase, outofstock, normal
+
+    // Brand data loaded from localStorage
+    let appData = {
+      vvdi: {
+        baseline: null, // { timestamp, fileName, items: { [sku]: { name, qty } } }
+        current: null,  // { timestamp, fileName, items: { [sku]: { name, qty } } }
+        threshold: 30,
+        customOutOfStock: []
+      },
+      keydiy: {
+        baseline: null,
+        current: null,
+        threshold: 30,
+        customOutOfStock: []
+      },
+      autel: {
+        baseline: null,
+        current: null,
+        threshold: 30,
+        customOutOfStock: []
+      }
+    };
+
+    let comparisonResults = []; // Calculated diff items array
+
+    // --- Init Application ---
+    function initApp() {
+      loadStorage();
+      switchBrand('vvdi', true);
+      lucide.createIcons();
+    }
+
+    // --- LocalStorage helpers ---
+    function loadStorage() {
+      BRANDS.forEach(b => {
+        const saved = localStorage.getItem(`car_key_stock_${b}`);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            appData[b] = {
+              baseline: parsed.baseline || null,
+              current: parsed.current || null,
+              threshold: parsed.threshold !== undefined ? parsed.threshold : 30,
+              customOutOfStock: parsed.customOutOfStock || []
+            };
+          } catch(e) {
+            console.error('Failed to parse storage for', b, e);
+          }
+        }
+      });
+    }
+
+    function saveBrandStorage(b) {
+      localStorage.setItem(`car_key_stock_${b}`, JSON.stringify(appData[b]));
+    }
+
+    // --- Toast Notifications ---
+    function showToast(msg, type = 'info') {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toast-msg');
+      const toastIcon = document.getElementById('toast-icon');
+
+      toastMsg.innerText = msg;
+      
+      let bg = 'bg-slate-900';
+      let icon = 'info';
+      if (type === 'success') { bg = 'bg-emerald-600'; icon = 'check-circle'; }
+      if (type === 'warning') { bg = 'bg-amber-600'; icon = 'alert-triangle'; }
+      if (type === 'error') { bg = 'bg-rose-600'; icon = 'alert-circle'; }
+
+      toast.className = `fixed top-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl text-white transform transition-all duration-300 ${bg}`;
+      toastIcon.setAttribute('data-lucide', icon);
+      lucide.createIcons();
+
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateY(0)';
+      toast.style.pointerEvents = 'auto';
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-10px)';
+        toast.style.pointerEvents = 'none';
+      }, 3500);
+    }
+
+    // --- Switch Brand ---
+    function switchBrand(brandId, isInit = false) {
+      currentBrand = brandId;
+
+      // Update Tab Styles
+      BRANDS.forEach(b => {
+        const btn = document.getElementById(`tab-${b}`);
+        if (b === brandId) {
+          btn.className = 'brand-tab flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-sm bg-white text-emerald-700';
+        } else {
+          btn.className = 'brand-tab flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 transition-all';
+        }
+      });
+
+      // Update Brand Title & Avatar
+      const brandName = BRAND_NAMES[brandId];
+      document.getElementById('current-brand-name').innerText = `${brandName} 庫存監控`;
+      document.getElementById('upload-brand-tag').innerText = brandName;
+      document.getElementById('cfg-brand-title').innerText = brandName;
+      document.getElementById('brand-avatar').innerText = brandId.charAt(0).toUpperCase();
+
+      // Update Form Inputs
+      const bData = appData[brandId];
+      document.getElementById('threshold-input').value = bData.threshold;
+      document.getElementById('custom-out-textarea').value = (bData.customOutOfStock || []).join('\n');
+      document.getElementById('custom-out-count').innerText = `${(bData.customOutOfStock || []).length} 項`;
+      document.getElementById('kpi-danger-sub').innerText = `現有庫存 ≤ ${bData.threshold} pcs`;
+
+      // Update File Info display
+      const fileInfo = document.getElementById('file-info');
+      const fileNameEl = document.getElementById('file-name');
+      if (bData.current) {
+        fileInfo.classList.remove('hidden');
+        fileNameEl.innerText = `本次載入：${bData.current.fileName} (${Object.keys(bData.current.items).length} 項商品)`;
+      } else {
+        fileInfo.classList.add('hidden');
+      }
+
+      // Recompute and Render
+      refreshBrandUI();
+      if (!isInit) {
+        showToast(`已切換至 ${brandName}`);
+      }
+    }
+
+    // --- Toggle Settings Panel ---
+    function toggleConfigPanel() {
+      const p = document.getElementById('config-panel');
+      p.classList.toggle('hidden');
+      lucide.createIcons();
+    }
+
+    // --- Update Danger Threshold ---
+    function updateThreshold(val) {
+      const num = parseInt(val, 10) || 30;
+      appData[currentBrand].threshold = num;
+      saveBrandStorage(currentBrand);
+      document.getElementById('kpi-danger-sub').innerText = `現有庫存 ≤ ${num} pcs`;
+      computeComparison();
+      renderTable();
+      showToast(`已將 ${BRAND_NAMES[currentBrand]} 低存量危險門檻設為 ${num} pcs`, 'success');
+    }
+
+    // --- Save Custom Out of Stock ---
+    function saveCustomOutOfStock() {
+      const text = document.getElementById('custom-out-textarea').value;
+      const list = text.split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 0);
+      // Remove duplicates
+      const uniqueList = Array.from(new Set(list));
+      appData[currentBrand].customOutOfStock = uniqueList;
+      saveBrandStorage(currentBrand);
+      document.getElementById('custom-out-count').innerText = `${uniqueList.length} 項`;
+      computeComparison();
+      renderTable();
+      showToast(`已儲存 ${uniqueList.length} 項長期缺貨商品`, 'success');
+    }
+
+    // --- Baseline Status Refresh ---
+    function refreshBrandUI() {
+      const bData = appData[currentBrand];
+      const badge = document.getElementById('baseline-badge');
+      const desc = document.getElementById('baseline-desc');
+      const saveBtn = document.getElementById('btn-save-as-baseline');
+
+      if (bData.baseline) {
+        const count = Object.keys(bData.baseline.items).length;
+        badge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200';
+        badge.innerText = `基準在庫 (${count}項)`;
+        desc.innerText = `基準檔案：${bData.baseline.fileName} · 設定時間：${bData.baseline.timestamp}`;
+      } else {
+        badge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800 border border-amber-200';
+        badge.innerText = '尚未設定基準';
+        desc.innerText = '請先上傳一份 Excel 作為歷史比對基準檔案';
+      }
+
+      saveBtn.disabled = !bData.current;
+
+      computeComparison();
+      renderTable();
+    }
+
+    // --- Save Current as New Baseline ---
+    function saveCurrentAsBaseline() {
+      const bData = appData[currentBrand];
+      if (!bData.current) {
+        showToast('目前尚未上傳最新 Excel，無法儲存為基準', 'warning');
+        return;
+      }
+      bData.baseline = {
+        timestamp: new Date().toLocaleString('zh-TW', { hour12: false }),
+        fileName: bData.current.fileName,
+        items: JSON.parse(JSON.stringify(bData.current.items))
+      };
+      saveBrandStorage(currentBrand);
+      refreshBrandUI();
+      showToast(`已成功將本次 ${Object.keys(bData.baseline.items).length} 項商品儲存為新基準！`, 'success');
+    }
+
+    // --- Reset Baseline ---
+    function resetBaseline() {
+      if (!confirm(`確定要清除【${BRAND_NAMES[currentBrand]}】的歷史基準庫存嗎？`)) return;
+      appData[currentBrand].baseline = null;
+      saveBrandStorage(currentBrand);
+      refreshBrandUI();
+      showToast('已清除該品牌基準資料', 'info');
+    }
+
+    // --- Drag and Drop Events ---
+    function handleDragOver(e) {
+      e.preventDefault();
+      document.getElementById('dropzone').classList.add('border-emerald-500', 'bg-emerald-50/40');
+    }
+    function handleDragLeave(e) {
+      e.preventDefault();
+      document.getElementById('dropzone').classList.remove('border-emerald-500', 'bg-emerald-50/40');
+    }
+    function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById('dropzone').classList.remove('border-emerald-500', 'bg-emerald-50/40');
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        processUploadedFile(e.dataTransfer.files[0], false);
+      }
+    }
+    function handleFileSelect(e) {
+      if (e.target.files && e.target.files.length > 0) {
+        processUploadedFile(e.target.files[0], false);
+        e.target.value = ''; // Reset input
+      }
+    }
+    function uploadDirectAsBaseline(e) {
+      if (e.target.files && e.target.files.length > 0) {
+        processUploadedFile(e.target.files[0], true);
+        e.target.value = '';
+      }
+    }
+
+    // --- Parse Excel File via SheetJS ---
+    function processUploadedFile(file, isDirectBaseline = false) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+          if (!rows || rows.length === 0) {
+            showToast('檔案內容為空，請檢查檔案', 'error');
+            return;
+          }
+
+          const parsedItems = extractInventoryItems(rows);
+          const itemCount = Object.keys(parsedItems).length;
+
+          if (itemCount === 0) {
+            showToast('找不到商品編號或庫存欄位，請確認報表格式！', 'error');
+            return;
+          }
+
+          const record = {
+            timestamp: new Date().toLocaleString('zh-TW', { hour12: false }),
+            fileName: file.name,
+            items: parsedItems
+          };
+
+          const bData = appData[currentBrand];
+
+          // If directly uploaded as baseline OR brand has no baseline yet
+          if (isDirectBaseline || !bData.baseline) {
+            bData.baseline = record;
+            bData.current = record;
+            saveBrandStorage(currentBrand);
+            refreshBrandUI();
+            showToast(`初次上傳：已成功設定基準庫存 (${itemCount} 項商品)`, 'success');
+          } else {
+            // Uploaded as latest current file for comparison
+            bData.current = record;
+            saveBrandStorage(currentBrand);
+            refreshBrandUI();
+            showToast(`已成功載入最新報表 (${itemCount} 項商品) 並完成比對！`, 'success');
+          }
+
+          document.getElementById('file-info').classList.remove('hidden');
+          document.getElementById('file-name').innerText = `本次載入：${file.name} (${itemCount} 項商品)`;
+
+        } catch (err) {
+          console.error(err);
+          showToast(`解析 Excel 失敗：${err.message}`, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // --- Dynamic Column Locator ---
+    function extractInventoryItems(rows) {
+      // Find the header row by looking for keywords
+      let headerRowIndex = -1;
+      let skuColIndex = -1;
+      let nameColIndex = -1;
+      let qtyColIndex = -1;
+
+      for (let r = 0; r < Math.min(25, rows.length); r++) {
+        const row = rows[r];
+        if (!Array.isArray(row)) continue;
+
+        let sCol = -1, nCol = -1, qCol = -1;
+
+        for (let c = 0; c < row.length; c++) {
+          const val = String(row[c] || '').trim();
+          if (/^(商品編號|商品编号|商品代碼|編號|编号|SKU|SKU Code|Item Code|Part No|Model)$/i.test(val)) {
+            sCol = c;
+          } else if (/^(商品名稱|商品名称|品名|名稱|名称|Title|Product Name|Description)$/i.test(val)) {
+            nCol = c;
+          } else if (/^(庫存數量|库存数量|庫存|库存|數量|数量|Stock|Qty|Quantity|Available)$/i.test(val)) {
+            qCol = c;
+          }
+        }
+
+        // If we found at least SKU and Qty column
+        if (sCol !== -1 && qCol !== -1) {
+          headerRowIndex = r;
+          skuColIndex = sCol;
+          nameColIndex = nCol;
+          qtyColIndex = qCol;
+          break;
+        }
+      }
+
+      // Fallback: If header wasn't found by exact regex, search for substrings
+      if (headerRowIndex === -1) {
+        for (let r = 0; r < Math.min(25, rows.length); r++) {
+          const row = rows[r];
+          if (!Array.isArray(row)) continue;
+          let sCol = -1, nCol = -1, qCol = -1;
+          for (let c = 0; c < row.length; c++) {
+            const val = String(row[c] || '').trim();
+            if (val.includes('编号') || val.includes('編號') || val.toUpperCase().includes('SKU')) sCol = c;
+            if (val.includes('名称') || val.includes('名稱') || val.includes('品名')) nCol = c;
+            if (val.includes('库存') || val.includes('庫存') || val.toUpperCase().includes('QTY') || val.toUpperCase().includes('STOCK')) qCol = c;
+          }
+          if (sCol !== -1 && qCol !== -1) {
+            headerRowIndex = r;
+            skuColIndex = sCol;
+            nameColIndex = nCol;
+            qtyColIndex = qCol;
+            break;
+          }
+        }
+      }
+
+      // If still not found, defaults to common structure
+      if (headerRowIndex === -1) {
+        headerRowIndex = 0;
+        skuColIndex = 0;
+        nameColIndex = 1;
+        qtyColIndex = 2;
+      }
+
+      const items = {};
+      for (let r = headerRowIndex + 1; r < rows.length; r++) {
+        const row = rows[r];
+        if (!row || row.length === 0) continue;
+
+        const rawSku = String(row[skuColIndex] || '').trim();
+        if (!rawSku || rawSku === 'undefined' || rawSku === 'null') continue;
+
+        // Skip non-item rows (e.g. Totals)
+        if (rawSku.includes('合计') || rawSku.includes('總計') || rawSku.includes('Total')) continue;
+
+        const name = nameColIndex !== -1 ? String(row[nameColIndex] || '').trim() : '';
+        const rawQty = row[qtyColIndex];
+        let qty = 0;
+        if (typeof rawQty === 'number') {
+          qty = rawQty;
+        } else if (rawQty) {
+          const cleaned = String(rawQty).replace(/,/g, '').trim();
+          qty = parseFloat(cleaned) || 0;
+        }
+
+        items[rawSku] = {
+          sku: rawSku,
+          name: name,
+          qty: qty
+        };
+      }
+
+      return items;
+    }
+
+    // --- Compute Comparison Logic ---
+    function computeComparison() {
+      const bData = appData[currentBrand];
+      const threshold = bData.threshold;
+      const customOut = new Set((bData.customOutOfStock || []).map(s => s.trim().toUpperCase()));
+
+      const baselineItems = bData.baseline ? bData.baseline.items : {};
+      const currentItems = bData.current ? bData.current.items : {};
+
+      const allSkus = new Set([
+        ...Object.keys(baselineItems),
+        ...Object.keys(currentItems),
+        ...(bData.customOutOfStock || [])
+      ]);
+
+      comparisonResults = [];
+
+      let countAll = 0;
+      let countDown = 0;
+      let countDanger = 0;
+      let countIncrease = 0;
+      let countOutOfStock = 0;
+
+      allSkus.forEach(sku => {
+        if (!sku) return;
+        countAll++;
+
+        const base = baselineItems[sku];
+        const curr = currentItems[sku];
+
+        const baseQty = base ? base.qty : 0;
+        const currQty = curr ? curr.qty : 0;
+        const name = (curr && curr.name) || (base && base.name) || '';
+
+        const isCustomOut = customOut.has(sku.trim().toUpperCase());
+
+        let status = 'normal'; // down, danger, increase, outofstock, normal
+        let statusLabel = '正常在庫';
+        let diffText = '無變動';
+        let diffVal = currQty - baseQty;
+
+        if (isCustomOut && currQty === 0) {
+          status = 'outofstock';
+          statusLabel = '長期缺貨';
+          countOutOfStock++;
+          diffText = '長期缺貨列管';
+        } else if (baseQty > 0 && currQty === 0) {
+          // KEY REQUIREMENT: Had stock last time, but missing in current export or 0
+          status = 'down';
+          statusLabel = '銷售完畢 (待下架)';
+          countDown++;
+          diffText = `完售 (原 ${baseQty})`;
+        } else if (currQty > baseQty) {
+          status = 'increase';
+          const isNew = !base;
+          statusLabel = isNew ? '✨ 全新上架' : '📈 庫存增加';
+          countIncrease++;
+          diffText = isNew ? `+${currQty} (新商品)` : `+${diffVal}`;
+        } else if (currQty > 0 && currQty <= threshold) {
+          status = 'danger';
+          statusLabel = `⚠️ 低存量危險 (≤${threshold})`;
+          countDanger++;
+          diffText = diffVal === 0 ? '持平低量' : `${diffVal}`;
+        } else if (currQty === 0) {
+          status = 'down';
+          statusLabel = '無庫存';
+          countDown++;
+          diffText = '缺貨';
+        } else {
+          status = 'normal';
+          statusLabel = '充足';
+          diffText = diffVal === 0 ? '持平' : `${diffVal}`;
+        }
+
+        comparisonResults.push({
+          sku,
+          name,
+          baseQty,
+          currQty,
+          diffVal,
+          diffText,
+          status,
+          statusLabel,
+          isCustomOut
+        });
+      });
+
+      // Update KPI counters
+      document.getElementById('kpi-all-count').innerText = countAll;
+      document.getElementById('kpi-down-count').innerText = countDown;
+      document.getElementById('kpi-danger-count').innerText = countDanger;
+      document.getElementById('kpi-increase-count').innerText = countIncrease;
+      document.getElementById('kpi-outofstock-count').innerText = countOutOfStock;
+    }
+
+    // --- Set Filter ---
+    function setFilter(type) {
+      currentFilter = type;
+
+      // Update KPI card active borders
+      document.querySelectorAll('.kpi-card').forEach(card => {
+        if (card.getAttribute('data-type') === type) {
+          card.classList.add('ring-2', 'ring-slate-800', 'shadow-md');
+        } else {
+          card.classList.remove('ring-2', 'ring-slate-800', 'shadow-md');
+        }
+      });
+
+      const badge = document.getElementById('active-filter-badge');
+      const filterNames = {
+        all: '全部商品',
+        down: '銷售完畢要下架 (售罄)',
+        danger: '低存量危險 (低於門檻)',
+        increase: '庫存增加 / 新補貨',
+        outofstock: '自訂長期缺貨',
+        normal: '正常存量'
+      };
+      badge.innerText = filterNames[type] || '全部商品';
+
+      renderTable();
+    }
+
+    // --- Render Data Table ---
+    function renderTable() {
+      const tbody = document.getElementById('table-body');
+      const searchKey = document.getElementById('search-input').value.trim().toLowerCase();
+
+      let list = comparisonResults.filter(item => {
+        if (currentFilter !== 'all' && item.status !== currentFilter) {
+          return false;
+        }
+        if (searchKey) {
+          const matchSku = item.sku.toLowerCase().includes(searchKey);
+          const matchName = item.name.toLowerCase().includes(searchKey);
+          if (!matchSku && !matchName) return false;
+        }
+        return true;
+      });
+
+      // Priority sort: down first, then danger, then increase, then outofstock, then normal
+      const sortWeight = { down: 1, danger: 2, increase: 3, outofstock: 4, normal: 5 };
+      list.sort((a, b) => {
+        const wA = sortWeight[a.status] || 99;
+        const wB = sortWeight[b.status] || 99;
+        if (wA !== wB) return wA - wB;
+        return a.currQty - b.currQty;
+      });
+
+      document.getElementById('result-count').innerText = `(${list.length} 筆)`;
+
+      if (list.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="py-12 text-center text-slate-400">
+              <i data-lucide="search-x" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+              沒有符合當前條件的商品資料
+            </td>
+          </tr>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      let html = '';
+      list.forEach((item, idx) => {
+        let badgeClass = 'badge-normal';
+        let diffColor = 'text-slate-500';
+
+        if (item.status === 'down') {
+          badgeClass = 'badge-down';
+          diffColor = 'text-rose-600 font-bold';
+        } else if (item.status === 'danger') {
+          badgeClass = 'badge-danger';
+          diffColor = 'text-amber-700 font-semibold';
+        } else if (item.status === 'increase') {
+          badgeClass = 'badge-increase';
+          diffColor = 'text-emerald-700 font-bold';
+        } else if (item.status === 'outofstock') {
+          badgeClass = 'badge-outofstock';
+          diffColor = 'text-purple-700 font-semibold';
+        }
+
+        html += `
+          <tr class="hover:bg-slate-50/80 transition-colors">
+            <td class="py-3 px-4 text-center text-slate-400 font-mono">${idx + 1}</td>
+            <td class="py-3 px-4">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${badgeClass}">
+                ${item.statusLabel}
+              </span>
+            </td>
+            <td class="py-3 px-4 font-mono font-bold text-slate-900 select-all">${item.sku}</td>
+            <td class="py-3 px-4 text-slate-700">${item.name || '<span class="text-slate-300">無品名</span>'}</td>
+            <td class="py-3 px-4 text-right font-mono text-slate-500">${item.baseQty}</td>
+            <td class="py-3 px-4 text-right font-mono font-bold ${item.currQty === 0 ? 'text-rose-600' : 'text-slate-900'}">${item.currQty}</td>
+            <td class="py-3 px-4 text-right font-mono ${diffColor}">${item.diffText}</td>
+          </tr>
+        `;
+      });
+
+      tbody.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    // --- Copy SKUs to Clipboard ---
+    function copyUnlistSkus() {
+      const unlistItems = comparisonResults.filter(i => i.status === 'down');
+      if (unlistItems.length === 0) {
+        showToast('目前沒有需要下架的商品', 'info');
+        return;
+      }
+      const skus = unlistItems.map(i => i.sku).join('\n');
+      navigator.clipboard.writeText(skus).then(() => {
+        showToast(`已複製 ${unlistItems.length} 個待下架商品編號！可直接貼至後台`, 'success');
+      }).catch(err => {
+        showToast('複製失敗，請手動複製', 'error');
+      });
+    }
+
+    function copyLowStockSkus() {
+      const dangerItems = comparisonResults.filter(i => i.status === 'danger');
+      if (dangerItems.length === 0) {
+        showToast('目前沒有低庫存危險商品', 'info');
+        return;
+      }
+      const skus = dangerItems.map(i => `${i.sku}\t(剩餘:${i.currQty})`).join('\n');
+      navigator.clipboard.writeText(skus).then(() => {
+        showToast(`已複製 ${dangerItems.length} 個低庫存商品清單！`, 'success');
+      }).catch(err => {
+        showToast('複製失敗，請手動複製', 'error');
+      });
+    }
+
+    // --- Export Report to Excel ---
+    function exportToExcel() {
+      if (comparisonResults.length === 0) {
+        showToast('目前沒有資料可匯出', 'warning');
+        return;
+      }
+
+      const rows = [
+        ['狀態', '商品編號', '商品名稱', '上次基準庫存', '本次最新庫存', '變動說明']
+      ];
+
+      comparisonResults.forEach(item => {
+        rows.push([
+          item.statusLabel,
+          item.sku,
+          item.name,
+          item.baseQty,
+          item.currQty,
+          item.diffText
+        ]);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '庫存比對異動表');
+
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const fileName = `${BRAND_NAMES[currentBrand]}_庫存比對報告_${dateStr}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+
+      showToast(`已成功匯出：${fileName}`, 'success');
+    }
+
+    // Startup
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>
