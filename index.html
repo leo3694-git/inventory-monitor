@@ -246,10 +246,10 @@
             智慧過濾規則
           </div>
           <div class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
-            <p><strong class="text-slate-800">VVDI 子機：</strong>自動保留 <code class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded font-mono">XK / XS / XZ / XN / XE</code></p>
-            <p><strong class="text-slate-800">KEYDIY 子機：</strong>自動保留 <code class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded font-mono">B / NB / ZB / TB / C29 / FGB / MLB</code></p>
-            <p><strong class="text-slate-800">AUTEL 子機：</strong>自動保留 <code class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded font-mono">IKEY</code></p>
-            <p class="text-[11px] text-slate-400 pt-1">儀器、平板、編程筆、轉接頭等已自動為您過濾！</p>
+            <p><strong class="text-slate-800">VVDI 子機：</strong>品名含「子机」或前綴 <code class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded font-mono">XK / XS / XZ / XN / XE</code></p>
+            <p><strong class="text-slate-800">KEYDIY 子機：</strong>品名含「子机」或前綴 <code class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded font-mono">B / NB / ZB / TB / C29 / FGB / MLB</code></p>
+            <p><strong class="text-slate-800">AUTEL 子機：</strong>品名含「子机」或型號 <code class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded font-mono">IKEY / AT / BW / CL / FD / GM / HD / HY / LR / NS / TY</code></p>
+            <p class="text-[11px] text-emerald-700 font-semibold pt-1">✨ 已全面支援：只要名稱包含「子机 / 子機」一律精準納入！</p>
           </div>
         </div>
         <div class="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
@@ -413,7 +413,7 @@
     const DEFAULT_PREFIXES = {
       vvdi: ['XK', 'XS', 'XZ', 'XN', 'XE'],
       keydiy: ['B', 'NB', 'ZB', 'TB', 'C29', 'FGB', 'MLB'],
-      autel: ['IKEY']
+      autel: ['IKEY', 'AT', 'BW', 'CL', 'FD', 'GM', 'HD', 'HY', 'LR', 'NS', 'TY']
     };
 
     const DEFAULT_BLACKLIST = [
@@ -473,13 +473,17 @@
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
+            let prefixes = parsed.allowedPrefixes || [...DEFAULT_PREFIXES[b]];
+            if (b === 'autel' && prefixes.length <= 1) {
+              prefixes = [...DEFAULT_PREFIXES.autel];
+            }
             appData[b] = {
               baseline: parsed.baseline || null,
               current: parsed.current || null,
               threshold: parsed.threshold !== undefined ? parsed.threshold : 30,
               customOutOfStock: parsed.customOutOfStock || [],
               enablePrefixFilter: parsed.enablePrefixFilter !== undefined ? parsed.enablePrefixFilter : true,
-              allowedPrefixes: parsed.allowedPrefixes || [...DEFAULT_PREFIXES[b]],
+              allowedPrefixes: prefixes,
               blacklistKeywords: parsed.blacklistKeywords || [...DEFAULT_BLACKLIST]
             };
           } catch(e) {
@@ -557,7 +561,7 @@
       const pill = document.getElementById('filter-active-pill');
       if (bData.enablePrefixFilter) {
         pill.classList.remove('hidden');
-        pill.innerHTML = `<i data-lucide="filter" class="w-3 h-3"></i> 只保留 [${bData.allowedPrefixes.join('/')}]`;
+        pill.innerHTML = `<i data-lucide="filter" class="w-3 h-3"></i> 只保留 [${bData.allowedPrefixes.join('/')}] 或品名含「子机」`;
       } else {
         pill.classList.add('hidden');
       }
@@ -604,7 +608,7 @@
       const pill = document.getElementById('filter-active-pill');
       if (checked) {
         pill.classList.remove('hidden');
-        pill.innerHTML = `<i data-lucide="filter" class="w-3 h-3"></i> 只保留 [${appData[currentBrand].allowedPrefixes.join('/')}]`;
+        pill.innerHTML = `<i data-lucide="filter" class="w-3 h-3"></i> 只保留 [${appData[currentBrand].allowedPrefixes.join('/')}] 或品名含「子机」`;
       } else {
         pill.classList.add('hidden');
       }
@@ -619,7 +623,7 @@
       appData[currentBrand].allowedPrefixes = list;
       saveBrandStorage(currentBrand);
       const pill = document.getElementById('filter-active-pill');
-      pill.innerHTML = `<i data-lucide="filter" class="w-3 h-3"></i> 只保留 [${list.join('/')}]`;
+      pill.innerHTML = `<i data-lucide="filter" class="w-3 h-3"></i> 只保留 [${list.join('/')}] 或品名含「子机」`;
       computeComparison();
       renderTable();
       showToast(`已更新子機前綴名單：${list.join(', ')}`, 'success');
@@ -653,7 +657,12 @@
       const cleanSku = (sku || '').trim().toUpperCase();
       const cleanName = (name || '').trim();
 
-      // 1. Blacklist check (Machine, Tool, Programmer, Adapter, Battery, etc.)
+      // 1. 最高優先權判定：只要品名或 SKU 包含「子机」或「子機」，一律判定為子機納入！
+      if (cleanName.includes('子机') || cleanName.includes('子機') || cleanSku.includes('子机') || cleanSku.includes('子機')) {
+        return { isValid: true, reason: '品名包含「子机」' };
+      }
+
+      // 2. Blacklist check (Machine, Tool, Programmer, Adapter, Battery, etc.)
       const black = bData.blacklistKeywords || [];
       for (let k of black) {
         if (!k) continue;
@@ -662,7 +671,7 @@
         }
       }
 
-      // 2. Prefix Whitelist check (XK, XS, XZ, XN, XE, B, NB, ZB, etc.)
+      // 3. Prefix Whitelist check (XK, XS, XZ, XN, XE, B, NB, ZB, IKEY, AT, BW, etc.)
       if (bData.enablePrefixFilter) {
         const allowed = bData.allowedPrefixes || [];
         if (allowed.length > 0) {
